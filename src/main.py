@@ -2,6 +2,11 @@
 Graph analysis module for Buenos Aires city networks.
 Students must implement all functions marked with TODO.
 """
+from src.algoritmos.traversal import *
+from src.algoritmos.short_path import *
+from src.algoritmos.mst import *
+from src.algoritmos.euler import *
+from src.algoritmos.critical import *
 
 from src.output import (
     format_componentes_conexos,
