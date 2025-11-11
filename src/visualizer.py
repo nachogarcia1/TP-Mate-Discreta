@@ -5,40 +5,82 @@ Generates .dot files for visualization with Graphviz.
 
 from pathlib import Path
 
+# --- helpers de introspección/adaptación ---
+
+def _is_graph_class(g) -> bool:
+    # Detecta objetos tipo GrafoAdyacencia sin importar el módulo
+    return hasattr(g, "vertices") and hasattr(g, "get_adjacency_list")
+
+def _nodes(g):
+    if _is_graph_class(g):
+        return list(g.vertices())
+    # dict de adyacencia
+    return list(g.keys())
+
+def _neighbors_simple(g, u):
+    if _is_graph_class(g):
+        return list(g.get_adjacency_list(u))
+    # dict: {u: [v,...]} o {u: [(v,w),...]} -> normalizamos
+    neis = g[u]
+    if not neis:
+        return []
+    if isinstance(neis[0], tuple):
+        return [v for v, _ in neis]
+    return list(neis)
+
+def _weight(g, u, v):
+    if _is_graph_class(g):
+        return g.get_weight(u, v)
+    # dict: puede ser simple o ponderado
+    for item in g[u]:
+        if isinstance(item, tuple):
+            vv, w = item
+            if vv == v:
+                return w
+        else:
+            if item == v:
+                return 1.0
+    return None
+
+def _q(name: str) -> str:
+    # Quote seguro para DOT (escapa comillas internas)
+    return '"' + str(name).replace('"', '\\"') + '"'
+
 
 def draw_simple_graph(g, filename, title="Graph"):
     """
     Generates a .dot file for a simple (unweighted) graph.
 
     Args:
-        g: Adjacency dictionary {node: [neighbors]}
-        filename: Output .dot file path
-        title: Graph title
-
-    Returns:
-        Path of generated file
+        g: GrafoAdyacencia o dict {node: [neighbors]}
     """
+    nodes = sorted(_nodes(g))
     lines = []
     lines.append("graph {")
-    lines.append(f'  label="{title}";')
-    lines.append('  node [shape=circle];')
-    lines.append('')
+    lines.append(f"  label={_q(title)};")
+    lines.append("  labelloc=top;")
+    lines.append("  labeljust=left;")
+    lines.append("  node [shape=circle];")
+    lines.append("")
 
-    # Add edges (avoid duplicates)
-    added_edges = set()
-    for u in sorted(g.keys()):
-        for v in g[u]:
-            edge = tuple(sorted([u, v]))
-            if edge not in added_edges:
-                lines.append(f'  {u} -- {v};')
-                added_edges.add(edge)
+    # Nodos (incluye aislados)
+    for u in nodes:
+        lines.append(f"  {_q(u)};")
 
-    lines.append('}')
+    # Aristas (evitar duplicados)
+    added = set()
+    for u in nodes:
+        for v in _neighbors_simple(g, u):
+            if u == v:
+                continue
+            edge = frozenset({u, v})
+            if edge in added:
+                continue
+            lines.append(f"  {_q(u)} -- {_q(v)};")
+            added.add(edge)
 
-    # Write file
-    with open(filename, 'w') as f:
-        f.write('\n'.join(lines))
-
+    lines.append("}")
+    Path(filename).write_text("\n".join(lines), encoding="utf-8")
     return Path(filename)
 
 
@@ -47,104 +89,75 @@ def draw_weighted_graph(g, filename, title="Weighted Graph"):
     Generates a .dot file for a weighted graph.
 
     Args:
-        g: Adjacency dictionary {node: [(neighbor, weight)]}
-        filename: Output .dot file path
-        title: Graph title
-
-    Returns:
-        Path of generated file
+        g: GrafoAdyacencia o dict {node: [(neighbor, weight)]} o {node: [neighbor]}
     """
+    nodes = sorted(_nodes(g))
     lines = []
     lines.append("graph {")
-    lines.append(f'  label="{title}";')
-    lines.append('  node [shape=circle];')
-    lines.append('')
+    lines.append(f"  label={_q(title)};")
+    lines.append("  labelloc=top;")
+    lines.append("  labeljust=left;")
+    lines.append("  node [shape=circle];")
+    lines.append("")
 
-    # Add weighted edges (avoid duplicates)
-    added_edges = set()
-    for u in sorted(g.keys()):
-        for v, weight in g[u]:
-            edge = tuple(sorted([u, v]))
-            if edge not in added_edges:
-                weight_str = str(int(weight) if weight == int(weight) else weight)
-                lines.append(f'  {u} -- {v} [label="{weight_str}"];')
-                added_edges.add(edge)
+    for u in nodes:
+        lines.append(f"  {_q(u)};")
 
-    lines.append('}')
+    added = set()
+    for u in nodes:
+        for v in _neighbors_simple(g, u):
+            if u == v:
+                continue
+            edge = frozenset({u, v})
+            if edge in added:
+                continue
+            w = _weight(g, u, v)
+            if w is None:
+                w = 1.0
+            weight_str = str(int(w)) if float(w).is_integer() else str(w)
+            lines.append(f"  {_q(u)} -- {_q(v)} [label={_q(weight_str)}];")
+            added.add(edge)
 
-    # Write file
-    with open(filename, 'w') as f:
-        f.write('\n'.join(lines))
-
+    lines.append("}")
+    Path(filename).write_text("\n".join(lines), encoding="utf-8")
     return Path(filename)
 
 
 def draw_connected_components(g, components, filename, title="Connected Components"):
-    """
-    Generates a .dot file for a graph with connected components.
-
-    Args:
-        g: Adjacency dictionary
-        components: List of lists with nodes of each component
-        filename: Output .dot file path
-        title: Graph title
-
-    Returns:
-        Path of generated file
-    """
+    # Si querés colorear por componente, lo podemos agregar; por ahora reusa simple.
     return draw_simple_graph(g, filename, title)
 
 
 def visualize_graphs(electric_graph, road_graph, water_graph, output_dir="resources"):
     """
-    Generates .dot files for the three graph types.
-
-    Args:
-        electric_graph: Electric graph (simple)
-        road_graph: Road graph (weighted)
-        water_graph: Water graph (simple)
-        output_dir: Directory to save .dot files
-
-    Returns:
-        Dict with paths of generated files
+    Genera .dot para los tres grafos. Acepta GrafoAdyacencia o dicts.
     """
-    # Create directory if it doesn't exist
     Path(output_dir).mkdir(parents=True, exist_ok=True)
-
     results = {}
 
     print("📊 Generating graph .dot files...")
 
-    # Electric graph
     print("  → Generating electrico.dot...")
     path = draw_simple_graph(
-        electric_graph,
-        f"{output_dir}/electrico.dot",
-        "Red Eléctrica"
+        electric_graph, f"{output_dir}/electrico.dot", "Red Eléctrica"
     )
-    results['electric'] = path
+    results["electric"] = path
     print(f"    ✓ Saved: {path}")
 
-    # Road graph
     print("  → Generating vial.dot...")
     path = draw_weighted_graph(
-        road_graph,
-        f"{output_dir}/vial.dot",
-        "Red Vial"
+        road_graph, f"{output_dir}/vial.dot", "Red Vial"
     )
-    results['road'] = path
+    results["road"] = path
     print(f"    ✓ Saved: {path}")
 
-    # Water graph
     print("  → Generating hidrico.dot...")
     path = draw_simple_graph(
-        water_graph,
-        f"{output_dir}/hidrico.dot",
-        "Red Hídrica"
+        water_graph, f"{output_dir}/hidrico.dot", "Red Hídrica"
     )
-    results['water'] = path
+    results["water"] = path
     print(f"    ✓ Saved: {path}")
 
     print(f"✓ .dot files generated ({len(results)} graphs)")
-    print("  To visualize: dot -Tpng electrico.dot -o electrico.png\n")
+    print("  To visualize: dot -Tpng resources/electrico.dot -o resources/electrico.png")
     return results
