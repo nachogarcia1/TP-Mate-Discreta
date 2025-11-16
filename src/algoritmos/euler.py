@@ -2,48 +2,52 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Dict, List
 
+
 class Hierholzer:
     @staticmethod
     def compute(g) -> List[str]:
         """
-        Ruta/circuito euleriano en grafo NO dirigido (si existe).
-        Retorna una secuencia de vértices que recorre todas las aristas una vez.
+        Calcula un camino/circuito euleriano en un grafo NO dirigido (si existe).
+        Usa g.edges() para reconstruir el grafo.
+        Devuelve la secuencia de vértices que recorre cada arista exactamente una vez.
         Si no es euleriano/semieuleriano, retorna lista vacía.
         """
-        # Construir adyacencias "modificables" (multiset simple)
+
+        # 1) Construir adyacencias como grafo no dirigido
         adj: Dict[str, List[str]] = defaultdict(list)
-        verts = list(getattr(g, "vertices", lambda: [])())
+        for u, v, w in g.edges():
+            adj[u].append(v)
+            adj[v].append(u)
 
-        # cargar aristas una sola vez
-        for u in verts:
-            for v in g.get_adjacency_list(u):
-                if u < v:
-                    adj[u].append(v)
-                    adj[v].append(u)
-
-        # Si no hay aristas, devolver vacío o [v]
-        if not any(adj.values()):
+        if not adj:
             return []
 
-        # Elegir start: si hay 0 o 2 impares → válido
-        impares = [x for x in adj if len(adj[x]) % 2 == 1]
-        if len(impares) == 0:
-            start = next(iter(adj))
-        elif len(impares) == 2:
-            start = impares[0]
+        # 2) Determinar vértices de grado impar
+        impares = [v for v, neis in adj.items() if len(neis) % 2 == 1]
+
+        # 3) Si no es euleriano (0 impares) ni semieuleriano (2 impares) → no hay camino
+        if len(impares) not in (0, 2):
+            return []
+
+        # 4) Elegir vértice inicial de forma determinista
+        if len(impares) == 2:
+            # Camino euleriano: arrancamos en el menor de los impares
+            start = min(impares)
         else:
-            return []
+            # Circuito euleriano: arrancamos en el menor vértice con aristas
+            start = min(adj.keys())
 
-        # Hierholzer
-        stack = [start]
+        # 5) Copia local de adyacencias para ir "borrando" aristas
+        local: Dict[str, List[str]] = {u: list(neis) for u, neis in adj.items()}
+
+        stack: List[str] = [start]
         path: List[str] = []
-        local = {u: list(neis) for u, neis in adj.items()}
 
+        # 6) Algoritmo de Hierholzer
         while stack:
             u = stack[-1]
-            if local.get(u):
+            if local[u]:
                 v = local[u].pop()
-                # eliminar arista en ambos sentidos
                 local[v].remove(u)
                 stack.append(v)
             else:

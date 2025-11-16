@@ -59,9 +59,7 @@ def load_weighted_graph(path: str) -> GrafoAdyacencia:
             if len(parts) < 3:
                 continue
             u, v, w = parts[0], parts[1], float(parts[2])
-            g.add_edge(u, v)
-            # set_weight permite actualizar/inicializar el peso
-            g.set_weight(u, v, w)
+            g.add_edge(u, v, w)
     return g
 
 
@@ -149,14 +147,14 @@ def process_queries(
 ):
     """
     Lee el archivo de consultas y escribe las respuestas formateadas.
-    Comandos soportados (nombres genéricos; adaptá si tu archivo usa otros):
-      - COMPONENTES_CONEXOS
-      - ORDEN_FALLOS
+    Soporta tanto los nombres "cortos" como los del enunciado/consultas.txt:
+      - COMPONENTES_CONEXOS ELECTRICA
+      - ORDEN_FALLOS ELECTRICA
       - CAMINO_MINIMO <origen> <destino>
-      - SIMULAR_CORTE <origen> <destino> cortes: a,b,c
-      - RUTA_RECOLECCION
+      - CAMINO_MINIMO_SIMULAR_CORTE {a,b,c} <origen> <destino>
+      - CAMINO_RECOLECCION_BASURA
+      - PLANTAS_ASIGNADAS p1 p2 ...
       - PUENTES_Y_ARTICULACIONES
-      - PLANTAS [plantas: p1,p2,...]  (o PLANTAS p1 p2 p3)
     """
     outputs: List[str] = []
 
@@ -174,13 +172,15 @@ def process_queries(
                 outputs.append(format_componentes_conexos(comps))
 
             elif op in ("ORDEN_FALLOS", "ORDEN_FALLOS_ELECTRICA"):
-                grados = [(v, len(electric_graph.get_adjacency_list(v))) for v in electric_graph.vertices()]
+                grados = [
+                    (v, len(electric_graph.get_adjacency_list(v)))
+                    for v in electric_graph.vertices()
+                ]
                 outputs.append(format_orden_fallos(grados))
 
             # ---------------- Vial (ponderado) ----------------
             elif op == "CAMINO_MINIMO":
                 if len(tokens) < 3:
-                    # línea mal formada → sin camino
                     outputs.append(format_camino_minimo("?", "?", float("inf"), []))
                     continue
                 origen, destino = tokens[1], tokens[2]
@@ -189,21 +189,43 @@ def process_queries(
                 camino = Dijkstra.path(parent, destino)
                 outputs.append(format_camino_minimo(origen, destino, d, camino))
 
-            elif op == "SIMULAR_CORTE":
-                if len(tokens) < 3:
-                    outputs.append(format_simulacion_corte("?", "?", [], float("inf"), []))
+            elif op in ("SIMULAR_CORTE", "CAMINO_MINIMO_SIMULAR_CORTE"):
+                # Soportar dos formatos:
+                # 1) SIMULAR_CORTE origen destino cortes: a,b,c
+                # 2) CAMINO_MINIMO_SIMULAR_CORTE {a,b,c} origen destino   (como en consultas.txt)
+                origen = destino = "?"
+                cortes: List[str] = []
+
+                # Formato con llaves: CAMINO_MINIMO_SIMULAR_CORTE {a,b,c} origen destino
+                if len(tokens) >= 4 and tokens[1].startswith("{"):
+                    cortes_token = tokens[1]
+                    cortes_str = cortes_token.strip("{}")
+                    cortes = [c.strip() for c in cortes_str.split(",") if c.strip()]
+                    origen, destino = tokens[2], tokens[3]
+                else:
+                    # Formato original: SIMULAR_CORTE origen destino cortes: ...
+                    if len(tokens) >= 3:
+                        origen, destino = tokens[1], tokens[2]
+                    cortes = _parse_cortes(line)
+
+                if origen == "?" or destino == "?":
+                    outputs.append(
+                        format_simulacion_corte(origen, destino, cortes, float("inf"), [])
+                    )
                     continue
-                origen, destino = tokens[1], tokens[2]
-                cortes = _parse_cortes(line)
-                dist, parent = Dijkstra.compute(road_graph, origen, destino, banned=set(cortes))
+
+                dist, parent = Dijkstra.compute(
+                    road_graph, origen, destino, banned=set(cortes)
+                )
                 d = dist.get(destino, float("inf"))
                 camino = Dijkstra.path(parent, destino)
-                outputs.append(format_simulacion_corte(origen, destino, cortes, d, camino))
+                outputs.append(
+                    format_simulacion_corte(origen, destino, cortes, d, camino)
+                )
 
-            elif op == "RUTA_RECOLECCION":
+            elif op in ("RUTA_RECOLECCION", "CAMINO_RECOLECCION_BASURA"):
                 ruta = Hierholzer.compute(road_graph)
                 if not ruta:
-                    # Fallback razonable: mayor componente del vial
                     comps = ComponentesConexos.compute(road_graph)
                     ruta = max(comps, key=len) if comps else []
                 outputs.append(format_ruta_recoleccion(ruta))
@@ -211,15 +233,19 @@ def process_queries(
             # ---------------- Hídrica ----------------
             elif op in ("PUENTES_Y_ARTICULACIONES", "PUENTES_ARTICULACIONES"):
                 articulaciones, puentes = TarjanCriticos.compute(water_graph)
-                outputs.append(format_puentes_y_articulaciones(articulaciones, puentes))
+                outputs.append(
+                    format_puentes_y_articulaciones(articulaciones, puentes)
+                )
 
-            elif op == "PLANTAS":
+            elif op in ("PLANTAS", "PLANTAS_ASIGNADAS"):
+                # PLANTAS_ASIGNADAS Saavedra VillaSoldati
+                # o PLANTAS plantas: Saavedra, VillaSoldati
                 plantas = _parse_plantas(line)
                 asign = _asignar_plantas_bfs_multiorigen(water_graph, plantas)
                 outputs.append(format_plantas_asignadas(plantas, asign))
 
             else:
-                # Comando desconocido → registramos comentario para depurar
+                # Comando desconocido → comentario (te puede ayudar a debuggear)
                 outputs.append(f"# Consulta desconocida: {line}\n")
 
     with open(output_file, "w", encoding="utf-8") as out:

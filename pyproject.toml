@@ -4,7 +4,11 @@ version = "1.0.0"
 description = "Análisis de grafos para redes urbanas de Buenos Aires (eléctrica, vial e hídrica)"
 readme = "README.md"
 requires-python = ">=3.7"
-dependencies = []
+dependencies = [
+    "networkx>=2.6.3",
+    "numpy>=1.21.6",
+    "pytest>=7.4.4",
+]
 
 [build-system]
 requires = ["hatchling"]
