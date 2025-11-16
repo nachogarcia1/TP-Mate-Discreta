@@ -1,4 +1,4 @@
-from interfaz_grafo import Grafo
+from .interfaz_grafo import Grafo
 
 class GrafoAdyacencia(Grafo):
     def __init__(self, no_dirigido: bool = True):
